@@ -31,32 +31,13 @@ sent_signals = set()
 def calculate_ema(df, period):
     return df['close'].ewm(span=period, adjust=False).mean()
 
-# ===== ATR Calculation =====
-def calculate_atr(df, period=14):
-    df['high-low'] = df['high'] - df['low']
-    df['high-close'] = abs(df['high'] - df['close'].shift(1))
-    df['low-close'] = abs(df['low'] - df['close'].shift(1))
-    df['TR'] = df[['high-low', 'high-close', 'low-close']].max(axis=1)
-    df['ATR'] = df['TR'].rolling(window=period).mean()
-    return df['ATR']
-
-# ===== TP Calculation (50-60% movement using ATR) =====
-def calculate_take_profit(entry_price, atr_value, position_type):
-    tp_multiplier = 1.5  # Targeting ~50-60% of ATR
-    if position_type == "Long":
-        tp = entry_price + (atr_value * tp_multiplier)
-    else:
-        tp = entry_price - (atr_value * tp_multiplier)
-    return round(tp, 2)
-
 # ===== Telegram Message Function =====
-def send_telegram_message(coin, position, price, tp):
+def send_telegram_message(coin, position, price):
     message = f"""
     📊 Signal Alert 📊
     Coin: {coin}
     Position: {position}
     Entry Price: {price}
-    Target Price (TP): {tp}
     """
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {'chat_id': TELEGRAM_CHAT_ID, 'text': message}
@@ -71,27 +52,24 @@ def monitor_ema_crossovers(symbol, timeframe='15m', limit=50):
         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
         df['EMA_9'] = calculate_ema(df, 9)
         df['EMA_21'] = calculate_ema(df, 21)
-        df['ATR'] = calculate_atr(df)
 
-        # Check Long Crossover
-        if df['EMA_9'].iloc[-2] <= df['EMA_21'].iloc[-2] and df['EMA_9'].iloc[-1] > df['EMA_21'].iloc[-1]:
+        # Check Long Crossover (real-time detection)
+        if df['EMA_9'].iloc[-1] > df['EMA_21'].iloc[-1] and df['EMA_9'].iloc[-2] <= df['EMA_21'].iloc[-2]:
             price = df['close'].iloc[-1]
             signal_id = f"{symbol}_LONG_{df['timestamp'].iloc[-1]}"
             if signal_id not in sent_signals:
                 sent_signals.add(signal_id)
-                tp = calculate_take_profit(price, df['ATR'].iloc[-1], "Long")
-                send_telegram_message(symbol, "Long", price, tp)
-                print(f"Long Crossover on {symbol} | Entry: {price}, TP: {tp}")
+                send_telegram_message(symbol, "Long", price)
+                print(f"Long Crossover on {symbol} | Entry: {price}")
 
-        # Check Short Crossover
-        elif df['EMA_9'].iloc[-2] >= df['EMA_21'].iloc[-2] and df['EMA_9'].iloc[-1] < df['EMA_21'].iloc[-1]:
+        # Check Short Crossover (real-time detection)
+        elif df['EMA_9'].iloc[-1] < df['EMA_21'].iloc[-1] and df['EMA_9'].iloc[-2] >= df['EMA_21'].iloc[-2]:
             price = df['close'].iloc[-1]
             signal_id = f"{symbol}_SHORT_{df['timestamp'].iloc[-1]}"
             if signal_id not in sent_signals:
                 sent_signals.add(signal_id)
-                tp = calculate_take_profit(price, df['ATR'].iloc[-1], "Short")
-                send_telegram_message(symbol, "Short", price, tp)
-                print(f"Short Crossover on {symbol} | Entry: {price}, TP: {tp}")
+                send_telegram_message(symbol, "Short", price)
+                print(f"Short Crossover on {symbol} | Entry: {price}")
 
     except Exception as e:
         print(f"Error fetching data for {symbol}: {e}")
@@ -114,3 +92,4 @@ def monitor_coins(timeframe='15m'):
 # ===== Main Execution =====
 if __name__ == "__main__":
     monitor_coins(timeframe='15m')
+
